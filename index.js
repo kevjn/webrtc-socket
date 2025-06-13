@@ -1,19 +1,93 @@
+
+class SignalingWebSocket extends EventTarget {
+    constructor(url) {
+        super()
+        this.url = url
+    }
+
+    connect() {
+        this.socket = new WebSocket(this.url)
+
+        this.socket.addEventListener("open", () => {
+            const data = {"action": "announce"}
+            this.socket.send(JSON.stringify(data))
+        })
+
+        this.socket.addEventListener("message", (event) => {
+            const message = JSON.parse(event.data)
+            switch (message.event) {
+                case "add-peer":
+                    this.dispatchEvent(new MessageEvent("add-peer", event))
+                    break
+                case "remove-peer":
+                    this.dispatchEvent(new MessageEvent("remove-peer", event))
+                case "session-description":
+                    this.dispatchEvent(new MessageEvent("session-description", event))
+                    break
+                case "ice-candidate":
+                    this.dispatchEvent(new MessageEvent("ice-candidate", event))
+                    break
+                default:
+                    console.error(`Unrecognized message event: ${JSON.stringify(message)}`)
+                
+            }
+        })
+    }
+
+    send(peerId, event, data) {
+      const message = {"action": "message", "connectionId": peerId, "event": event, "data": data}
+      console.info(`relay message: ${JSON.stringify(message)}`)
+      this.socket.send(JSON.stringify(message))
+    }
+}
+
+class SignalingEventSource extends EventTarget {
+    constructor(url) {
+        super()
+        this.username = 'user' + parseInt(Math.random() * 100000);
+        this.url = url
+    }
+
+    connect() {
+        let es = new EventSource(`${this.url}/connect?peerId=${this.username}`);
+        es.addEventListener('add-peer', (e) => this.dispatchEvent(new MessageEvent("add-peer", e)), false);
+        es.addEventListener('remove-peer', (e) => this.dispatchEvent(new MessageEvent("remove-peer", e)), false);
+        es.addEventListener('session-description', (e) => this.dispatchEvent(new MessageEvent("session-description", e)), false);
+        es.addEventListener('ice-candidate', (e) => this.dispatchEvent(new MessageEvent("ice-candidate", e)), false);
+    }
+
+    async send(peerId, event, data) {
+        await fetch(`${this.url}/relay/${peerId}/${event}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'mode': 'cors',
+                'peerId': this.username,
+            },
+            body: JSON.stringify(data)
+        });
+    }
+}
+
 class WebRtcSocket extends EventTarget {
-  constructor(url) {
+  constructor(signalingSocket) {
       super();
       
-      this.username = 'user' + parseInt(Math.random() * 100000);
       this.peers = {};
       this.channels = {};
-      this.url = url
+      this.socket = signalingSocket
   }
 
   connect() {
-      let es = new EventSource(`${this.url}/connect?peerId=${this.username}`);
-      es.addEventListener('add-peer', d => this.addPeer(d), false);
-      es.addEventListener('remove-peer', d => this.removePeer(d), false);
-      es.addEventListener('session-description', d => this.sessionDescription(d), false);
-      es.addEventListener('ice-candidate', d => this.addIceCandidate(d), false);
+      this.socket.connect()
+      this.socket.addEventListener('add-peer', d => this.addPeer(d), false);
+      this.socket.addEventListener('remove-peer', d => this.removePeer(d), false);
+      this.socket.addEventListener('session-description', d => this.sessionDescription(d), false);
+      this.socket.addEventListener('ice-candidate', d => this.addIceCandidate(d), false);
+  }
+
+  relay(peerId, event, data) {
+      this.socket.send(peerId, event, data)
   }
 
   async addPeer(data) {
@@ -96,18 +170,6 @@ class WebRtcSocket extends EventTarget {
       }
   }
   
-  async relay(peerId, event, data) {
-      await fetch(`${this.url}/relay/${peerId}/${event}`, {
-          method: 'POST',
-          headers: {
-              'Content-Type': 'application/json',
-              'mode': 'cors',
-              'peerId': this.username,
-          },
-          body: JSON.stringify(data)
-      });
-  }
-  
   broadcast(data) {
       for (let peerId in this.channels) {
           if (this.channels[peerId].readyState === 'open') {
@@ -159,6 +221,7 @@ class WebRtcSocket extends EventTarget {
 
 export default (context) => {
   let url = "http://127.0.0.1:8080"
-  context.socket = new WebRtcSocket(url)
+  context.socket = new WebRtcSocket(new SignalingEventSource(url))
+//   context.socket = new WebRtcSocket(new SignalingWebSocket(url))
   context.socket.connect()
 }
