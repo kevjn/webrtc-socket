@@ -54,11 +54,11 @@ pub struct WebRtcSocket {
     pub peers: HashMap<String, Arc<RTCPeerConnection>>,
     pub url: String,
     pub api: API,
-    pub data_channel_tx: tokio::sync::mpsc::Sender<PollDataChannel>,
+    pub data_channel_tx: tokio::sync::mpsc::Sender<(String,PollDataChannel)>,
 }
 
 impl WebRtcSocket {
-    pub fn new(url: &str) -> Result<(Self, tokio::sync::mpsc::Receiver<PollDataChannel>)> {
+    pub fn new(url: &str) -> Result<(Self, tokio::sync::mpsc::Receiver<(String,PollDataChannel)>)> {
         let peers: HashMap<String, Arc<RTCPeerConnection>> = HashMap::new();
 
         // WebRTC-rs API setup
@@ -82,7 +82,8 @@ impl WebRtcSocket {
         Ok((WebRtcSocket { peers, url: url.to_string(), api, data_channel_tx }, events_rx))
     }
 
-    async fn set_dc_callbacks(events_tx: tokio::sync::mpsc::Sender<PollDataChannel>, dc: Arc<RTCDataChannel>) {
+    async fn set_dc_callbacks(connection_id: &str, events_tx: tokio::sync::mpsc::Sender<(String,PollDataChannel)>, dc: Arc<RTCDataChannel>) {
+        let connection_id = connection_id.to_string();
         dc.to_owned().on_open(Box::new(move || {
             Box::pin(async move {
                 // https://github.com/webrtc-rs/data/pull/4
@@ -140,13 +141,15 @@ impl WebRtcSocket {
                             let signal_message = SignalMessage::SessionDescription { peer: peer.clone(), data: offer };
                             message_tx.send(signal_message.to_signal_message_action(&peer)).unwrap();
 
-                            WebRtcSocket::set_dc_callbacks(self.data_channel_tx.clone(), channel).await;
+                            WebRtcSocket::set_dc_callbacks(&peer, self.data_channel_tx.clone(), channel).await;
                         } else {
                             let events_tx = self.data_channel_tx.clone();
+                            let peer = peer.clone();
                             peer_connection.on_data_channel(Box::new(move |d: Arc<RTCDataChannel>| {
+                                let peer = peer.clone();
                                 let events_tx = events_tx.clone();
                                 Box::pin(async move {
-                                    WebRtcSocket::set_dc_callbacks(events_tx, d).await;
+                                    WebRtcSocket::set_dc_callbacks(&peer,events_tx, d).await;
                                 })
                             }));
                         }

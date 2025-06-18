@@ -17,7 +17,7 @@ async fn main() {
         tokio::select! {
           Some(_) = write_stdin.next() => {},
           Some(_) = read_stdin.next() => {}
-          Some(mut channel) = channel_rx.recv() => {
+          Some((_, mut channel)) = channel_rx.recv() => {
             println!("new channel");
 
             let mut r = channel.clone();
