@@ -90,9 +90,9 @@ impl WebRtcSocket {
                 let dc = dc.detach().await.unwrap();
                 let mut dc = PollDataChannel::new(dc);
                 dc.set_read_buf_capacity(32768); // this needs to increased from default 8192 to the piece size used in BitTorrent
-                events_tx.send(dc).await.unwrap();
+                events_tx.send((connection_id,dc)).await.unwrap();
             })
-        })).await;
+        }));
     }
 
     pub async fn connect(&mut self) {
@@ -148,7 +148,7 @@ impl WebRtcSocket {
                                 Box::pin(async move {
                                     WebRtcSocket::set_dc_callbacks(events_tx, d).await;
                                 })
-                            })).await;
+                            }));
                         }
 
                         let message_tx = message_tx.clone();
@@ -158,11 +158,11 @@ impl WebRtcSocket {
                             Box::pin(async move {
                                 if let Some(c) = c {
                                     // relay candidate to peer
-                                    let signal_message = SignalMessage::IceCandidate { peer: peer.clone(), data: Some(c.to_json().await.unwrap()) };
+                                    let signal_message = SignalMessage::IceCandidate { peer: peer.clone(), data: Some(c.to_json().unwrap()) };
                                     message_tx.send(signal_message.to_signal_message_action(&peer)).unwrap();
                                 }
                             })
-                        })).await;
+                        }));
                     },
                     SignalMessage::RemovePeer { peer } => {
                         self.peers.remove(&peer);
