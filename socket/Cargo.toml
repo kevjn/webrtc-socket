@@ -1,0 +1,12 @@
+[package]
+name = "unix-socket"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+webrtc_socket = { path="../native" }
+futures = "0.3.21"
+webrtc = { version = "0.13.0" }
+tempfile = { version = "3.20.0" }
+clap = { version = "4.5.40", features = ["derive"] }
